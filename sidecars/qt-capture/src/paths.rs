@@ -23,6 +23,7 @@ impl QtPaths {
             let libs = usr.join("lib");
             let plugins = usr.join("plugins");
             let qml = usr.join("qml");
+            let share = usr.join("share");
 
             if !bin.exists() {
                 anyhow::bail!("Qt binary not found at {}", bin.display());
@@ -46,6 +47,11 @@ impl QtPaths {
                 "QT_QPA_PLATFORM_PLUGIN_PATH".to_string(),
                 plugins.join("platforms").to_string_lossy().to_string(),
             ));
+            let mut xdg_data_dirs = share.to_string_lossy().to_string();
+            if let Ok(existing) = env::var("XDG_DATA_DIRS") {
+                xdg_data_dirs = format!("{}:{}", xdg_data_dirs, existing);
+            }
+            env_vars.push(("XDG_DATA_DIRS".to_string(), xdg_data_dirs));
 
             Ok(QtPaths { bin, env_vars })
         }

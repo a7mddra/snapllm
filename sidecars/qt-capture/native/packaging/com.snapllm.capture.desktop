@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Name=SnapLLM Capture
+Exec=capture-bin
+Type=Application
+Icon=com.snapllm.capture
+Categories=Utility;Graphics;
+NoDisplay=true
+StartupNotify=false

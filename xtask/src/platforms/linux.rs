@@ -61,7 +61,7 @@ pub fn deploy(native_dir: &Path) -> Result<()> {
 }
 
 fn create_runtime_distribution(
-    _native_dir: &Path,
+    native_dir: &Path,
     build_dir: &Path,
     runtime_dir: &Path,
 ) -> Result<()> {
@@ -81,6 +81,8 @@ fn create_runtime_distribution(
 
     fs::copy(&src_bin, &dst_bin)?;
 
+    install_desktop_identity_assets(native_dir, runtime_dir)?;
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -90,7 +92,7 @@ fn create_runtime_distribution(
     let qmake_path = resolve_qmake_path();
     println!("  Using qmake: {}", qmake_path);
 
-    let qmldir = _native_dir.join("qml");
+    let qmldir = native_dir.join("qml");
     if !qmldir.exists() {
         anyhow::bail!("QML source directory not found at {}", qmldir.display());
     }
@@ -151,6 +153,41 @@ fn create_runtime_distribution(
         runtime_dir.display()
     );
     println!("  Launch it using: {}/AppRun", runtime_dir.display());
+
+    Ok(())
+}
+
+fn install_desktop_identity_assets(native_dir: &Path, runtime_dir: &Path) -> Result<()> {
+    let desktop_src = native_dir
+        .join("packaging")
+        .join("com.snapllm.capture.desktop");
+    if !desktop_src.exists() {
+        anyhow::bail!(
+            "Desktop entry template not found at {}",
+            desktop_src.display()
+        );
+    }
+
+    let applications_dir = runtime_dir.join("usr/share/applications");
+    fs::create_dir_all(&applications_dir)?;
+    fs::copy(
+        &desktop_src,
+        applications_dir.join("com.snapllm.capture.desktop"),
+    )?;
+
+    let icon_src = native_dir
+        .join("..")
+        .join("..")
+        .join("app")
+        .join("icons")
+        .join("128x128.png");
+    if !icon_src.exists() {
+        anyhow::bail!("Capture icon not found at {}", icon_src.display());
+    }
+
+    let icons_dir = runtime_dir.join("usr/share/icons/hicolor/128x128/apps");
+    fs::create_dir_all(&icons_dir)?;
+    fs::copy(icon_src, icons_dir.join("com.snapllm.capture.png"))?;
 
     Ok(())
 }
