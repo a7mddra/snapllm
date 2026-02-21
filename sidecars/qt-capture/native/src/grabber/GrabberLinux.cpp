@@ -29,10 +29,14 @@ class PortalHelper : public QObject
 public:
     QString savedUri;
     bool success = false;
+    bool responseReceived = false;
+    uint responseCode = 2;
 
 public slots:
     void handleResponse(uint response, const QVariantMap &results)
     {
+        responseReceived = true;
+        responseCode = response;
         if (response == 0)
         {
             savedUri = results.value("uri").toString();
@@ -80,6 +84,81 @@ public:
     }
 
 private:
+#if defined(Q_OS_LINUX)
+    struct PortalRequestResult
+    {
+        bool success = false;
+        bool cancelled = false;
+        bool timedOut = false;
+        bool callFailed = false;
+        bool uriMissing = false;
+        QString uri;
+    };
+
+    PortalRequestResult requestPortalScreenshotUri(const QString &parentWindow, bool interactive, int timeoutMs)
+    {
+        PortalRequestResult result;
+
+        QDBusInterface portal(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Screenshot");
+
+        if (!portal.isValid())
+        {
+            qCritical() << "Portal interface not found.";
+            result.callFailed = true;
+            return result;
+        }
+
+        QString token = QUuid::createUuid().toString().remove('{').remove('}').remove('-');
+        QVariantMap options;
+        options["handle_token"] = token;
+        options["interactive"] = interactive;
+
+        // Subscribe to the response signal BEFORE making the call to avoid
+        // a race condition where the portal responds before we connect.
+        // Predict the response path from our D-Bus sender name + token.
+        PortalHelper helper;
+        QEventLoop loop;
+
+        QString sender = QDBusConnection::sessionBus().baseService();
+        sender = sender.mid(1).replace('.', '_');
+        QString expectedPath = QString("/org/freedesktop/portal/desktop/request/%1/%2")
+                                   .arg(sender)
+                                   .arg(token);
+
+        QDBusConnection::sessionBus().connect(
+            "org.freedesktop.portal.Desktop", expectedPath,
+            "org.freedesktop.portal.Request", "Response",
+            &helper, SLOT(handleResponse(uint, QVariantMap)));
+        QObject::connect(&helper, &PortalHelper::finished, &loop, &QEventLoop::quit);
+
+        QDBusReply<QDBusObjectPath> reply = portal.call("Screenshot", parentWindow, options);
+        if (!reply.isValid())
+        {
+            qCritical() << "Portal call failed:" << reply.error().message();
+            result.callFailed = true;
+            return result;
+        }
+
+        QTimer::singleShot(timeoutMs, &loop, &QEventLoop::quit);
+        loop.exec();
+
+        if (!helper.responseReceived)
+        {
+            result.timedOut = true;
+            return result;
+        }
+
+        result.uri = helper.savedUri;
+        result.success = helper.success;
+        result.cancelled = (helper.responseCode == 1);
+        result.uriMissing = (helper.responseCode == 0 && helper.savedUri.isEmpty());
+        return result;
+    }
+#endif
+
     std::vector<CapturedFrame> captureStandard()
     {
         std::vector<CapturedFrame> frames;
@@ -113,60 +192,49 @@ private:
         std::vector<CapturedFrame> frames;
 
         QString parentWindow = "";
-        
-        QDBusInterface portal(
-            "org.freedesktop.portal.Desktop",
-            "/org/freedesktop/portal/desktop",
-            "org.freedesktop.portal.Screenshot");
 
-        if (!portal.isValid())
+        // Keep the existing 60s timeout for each attempt.
+        const int requestTimeoutMs = 60000;
+
+        PortalRequestResult result = requestPortalScreenshotUri(parentWindow, false, requestTimeoutMs);
+        if (result.success)
         {
-            qCritical() << "Portal interface not found.";
-            return frames;
+            qDebug() << "Portal screenshot succeeded without user interaction.";
+        }
+        else
+        {
+            qWarning() << "Portal non-interactive request failed; retrying with interactive=true."
+                       << "timedOut=" << result.timedOut
+                       << "cancelled=" << result.cancelled
+                       << "uriMissing=" << result.uriMissing
+                       << "callFailed=" << result.callFailed;
+
+            PortalRequestResult fallbackResult = requestPortalScreenshotUri(parentWindow, true, requestTimeoutMs);
+            if (!fallbackResult.success)
+            {
+                if (fallbackResult.cancelled)
+                {
+                    qWarning() << "Portal interactive fallback was cancelled/denied by user.";
+                }
+                else if (fallbackResult.timedOut)
+                {
+                    qWarning() << "Portal interactive fallback timed out.";
+                }
+                else if (fallbackResult.uriMissing)
+                {
+                    qWarning() << "Portal interactive fallback returned success but no URI.";
+                }
+                else
+                {
+                    qWarning() << "Portal interactive fallback failed.";
+                }
+                return frames;
+            }
+            qDebug() << "Portal interactive fallback succeeded.";
+            result = fallbackResult;
         }
 
-        QString token = QUuid::createUuid().toString().remove('{').remove('}').remove('-');
-        QVariantMap options;
-        options["handle_token"] = token;
-        options["interactive"] = false;
-
-        // Subscribe to the response signal BEFORE making the call to avoid
-        // a race condition where the portal responds before we connect.
-        // Predict the response path from our D-Bus sender name + token.
-        PortalHelper helper;
-        QEventLoop loop;
-
-        QString sender = QDBusConnection::sessionBus().baseService();
-        sender = sender.mid(1).replace('.', '_');
-        QString expectedPath = QString("/org/freedesktop/portal/desktop/request/%1/%2")
-                                   .arg(sender)
-                                   .arg(token);
-
-        QDBusConnection::sessionBus().connect(
-            "org.freedesktop.portal.Desktop", expectedPath,
-            "org.freedesktop.portal.Request", "Response",
-            &helper, SLOT(handleResponse(uint, QVariantMap)));
-        QObject::connect(&helper, &PortalHelper::finished, &loop, &QEventLoop::quit);
-
-        QDBusReply<QDBusObjectPath> reply = portal.call("Screenshot", parentWindow, options);
-        if (!reply.isValid())
-        {
-            qCritical() << "Portal call failed:" << reply.error().message();
-            return frames;
-        }
-
-        // Increase timeout to 60s to allow user to read/click permission dialog
-        QTimer::singleShot(60000, &loop, &QEventLoop::quit);
-
-        loop.exec();
-
-        if (!helper.success)
-        {
-            qWarning() << "Portal request failed or timed out.";
-            return frames;
-        }
-
-        QString localPath = QUrl(helper.savedUri).toLocalFile();
+        QString localPath = QUrl(result.uri).toLocalFile();
         QImage fullDesktop(localPath);
 
         if (!QFile::remove(localPath))
