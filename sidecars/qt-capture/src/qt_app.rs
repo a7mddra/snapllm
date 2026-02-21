@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, ExitCode, Stdio};
+use std::thread;
 use sys_display_hotplug::DisplayWatcher;
 use sys_shutter_suppressor::AudioGuard;
 use sys_single_instance::InstanceLock;
@@ -53,7 +54,8 @@ impl QtApp {
 
         cmd.args(&self.args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null());
+            // Keep Qt stderr visible so portal/debug failures are diagnosable.
+            .stderr(Stdio::piped());
 
         for (key, val) in paths.env_vars {
             cmd.env(key, val);
@@ -63,7 +65,22 @@ impl QtApp {
     }
 
     fn handle_ipc(&self, child: &mut Child) -> ExitCode {
-        if let Some(stdout) = child.stdout.take() {
+        let stderr_thread = child.stderr.take().map(|stderr| {
+            thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    match line {
+                        Ok(msg) if !msg.trim().is_empty() => {
+                            eprintln!("[Qt stderr] {}", msg.trim());
+                        }
+                        Ok(_) => {}
+                        Err(_) => break,
+                    }
+                }
+            })
+        });
+
+        let exit = if let Some(stdout) = child.stdout.take() {
             let reader = BufReader::new(stdout);
             let mut capture_success = false;
             let mut capture_path: Option<String> = None;
@@ -118,7 +135,13 @@ impl QtApp {
             }
         } else {
             ExitCode::from(1)
+        };
+
+        if let Some(handle) = stderr_thread {
+            let _ = handle.join();
         }
+
+        exit
     }
 
     fn process_capture(&self, path: &str) -> (Option<String>, Option<String>) {
