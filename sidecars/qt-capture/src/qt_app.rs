@@ -50,8 +50,18 @@ impl QtApp {
     fn spawn_process(&self) -> Result<Child> {
         let paths = QtPaths::resolve()?;
         let mut cmd = Command::new(&paths.bin);
+        let mut sidecar_args = self.args.clone();
 
-        cmd.args(&self.args)
+        if !sidecar_args.iter().any(|arg| arg == "--parent-window") {
+            if let Ok(parent_window) = env::var("SNAPLLM_PARENT_WINDOW_CONTEXT") {
+                if !parent_window.trim().is_empty() {
+                    sidecar_args.push("--parent-window".to_string());
+                    sidecar_args.push(parent_window);
+                }
+            }
+        }
+
+        cmd.args(&sidecar_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
 

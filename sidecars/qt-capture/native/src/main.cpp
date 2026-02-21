@@ -130,6 +130,12 @@ int main(int argc, char *argv[])
         "Use rectangle selection mode");
     parser.addOption(rectangleOption);
 
+    QCommandLineOption parentWindowOption(
+        QStringList() << "parent-window",
+        "Portal parent window context (for example, x11:0x123456 or wayland:handle)",
+        "parent");
+    parser.addOption(parentWindowOption);
+
     parser.process(app);
 
     QString captureMode = "freeshape";
@@ -141,6 +147,17 @@ int main(int argc, char *argv[])
     else
     {
         qDebug() << "Capture mode: Freeshape";
+    }
+
+    QString parentWindowContext = parser.value(parentWindowOption).trimmed();
+    if (parentWindowContext.isEmpty())
+    {
+        parentWindowContext = qEnvironmentVariable("SNAPLLM_PARENT_WINDOW_CONTEXT").trimmed();
+    }
+    app.setProperty("snapllm.portalParentWindow", parentWindowContext);
+    if (!parentWindowContext.isEmpty())
+    {
+        qDebug() << "Portal parent window context set.";
     }
 
     ScreenGrabber *engine = nullptr;

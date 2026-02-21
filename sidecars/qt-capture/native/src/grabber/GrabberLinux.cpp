@@ -112,8 +112,12 @@ private:
     {
         std::vector<CapturedFrame> frames;
 
-        QString parentWindow = "";
-        
+        QString parentWindow;
+        if (QCoreApplication::instance())
+        {
+            parentWindow = QCoreApplication::instance()->property("snapllm.portalParentWindow").toString().trimmed();
+        }
+
         QDBusInterface portal(
             "org.freedesktop.portal.Desktop",
             "/org/freedesktop/portal/desktop",
@@ -129,6 +133,12 @@ private:
         QVariantMap options;
         options["handle_token"] = token;
         options["interactive"] = false;
+
+        QString activationToken = qEnvironmentVariable("XDG_ACTIVATION_TOKEN").trimmed();
+        if (!activationToken.isEmpty())
+        {
+            options["activation_token"] = activationToken;
+        }
 
         // Subscribe to the response signal BEFORE making the call to avoid
         // a race condition where the portal responds before we connect.
