@@ -21,7 +21,11 @@ const AppLayoutContent: React.FC = () => {
 
   React.useEffect(() => {
     if (!shell.isLoadingState) {
-      invoke("show_window");
+      invoke<boolean>("is_background_mode").then((isBackground) => {
+        if (!isBackground) {
+          invoke("show_window");
+        }
+      });
     }
   }, [shell.isLoadingState]);
 

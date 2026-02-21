@@ -4,18 +4,7 @@
 use tauri::{AppHandle, Manager};
 
 pub fn show_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        if !window.is_visible().unwrap_or(true) || window.is_minimized().unwrap_or(false) {
-            let (x, y, _, _) = super::window::center_on_cursor_monitor(app, 1030.0, 690.0);
-            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                x: x as i32,
-                y: y as i32,
-            }));
-            let _ = window.unminimize();
-            let _ = window.show();
-        }
-        let _ = window.set_focus();
-    }
+    super::window::activate_and_center_window(app, 1030.0, 690.0);
 }
 
 pub fn toggle_window(app: &AppHandle) {
@@ -23,20 +12,21 @@ pub fn toggle_window(app: &AppHandle) {
         if window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false) {
             let _ = window.hide();
         } else {
-            let (x, y, _, _) = super::window::center_on_cursor_monitor(app, 1030.0, 690.0);
-            let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
-                x: x as i32,
-                y: y as i32,
-            }));
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
+            super::window::activate_and_center_window(app, 1030.0, 690.0);
         }
     }
 }
 
 pub fn capture_screen(app: &AppHandle) {
     super::capture::spawn_capture(app);
+}
+
+pub fn capture_screen_tray(app: &AppHandle) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        super::capture::spawn_capture(&handle);
+    });
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -47,11 +37,11 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let capture_i = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
     let show_i = MenuItem::with_id(app, "show_ui", "SnapLLM", true, None::<&str>)?;
+    let capture_i = MenuItem::with_id(app, "capture", "Capture", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let exit_i = MenuItem::with_id(app, "exit", "Exit", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&capture_i, &show_i, &sep, &exit_i])?;
+    let menu = Menu::with_items(app, &[&show_i, &capture_i, &sep, &exit_i])?;
 
     let _tray = TrayIconBuilder::new()
         .icon(app.default_window_icon().unwrap().clone())
@@ -59,8 +49,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .menu(&menu)
         .menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
-            "capture" => capture_screen(app),
             "show_ui" => show_window(app),
+            "capture" => capture_screen_tray(app),
             "exit" => app.exit(0),
             _ => {}
         })
@@ -156,18 +146,18 @@ mod sni {
             exit_props.insert("label".into(), Value::from("Exit").try_into().unwrap());
             exit_props.insert("enabled".into(), Value::from(true).try_into().unwrap());
 
-            let show_item: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) =
-                (1, show_props, vec![]);
             let show_ui_item: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) =
-                (2, show_ui_props, vec![]);
+                (1, show_ui_props, vec![]);
+            let capture_item: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) =
+                (2, show_props, vec![]);
             let sep_item: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) =
                 (3, sep_props, vec![]);
             let exit_item: (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>) =
                 (4, exit_props, vec![]);
 
             let children: Vec<OwnedValue> = vec![
-                Value::from(show_item).try_into().unwrap(),
                 Value::from(show_ui_item).try_into().unwrap(),
+                Value::from(capture_item).try_into().unwrap(),
                 Value::from(sep_item).try_into().unwrap(),
                 Value::from(exit_item).try_into().unwrap(),
             ];
@@ -203,9 +193,9 @@ mod sni {
         ) -> zbus::fdo::Result<()> {
             if event_id == "clicked" {
                 match id {
-                    1 => super::show_window(&self.app_handle),    // SnapLLM
-                    2 => super::capture_screen(&self.app_handle), // Capture
-                    4 => self.app_handle.exit(0),                 // Exit
+                    1 => super::show_window(&self.app_handle),         // SnapLLM
+                    2 => super::capture_screen_tray(&self.app_handle), // Capture
+                    4 => self.app_handle.exit(0),                      // Exit
                     _ => {}
                 }
             }

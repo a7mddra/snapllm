@@ -112,13 +112,7 @@ private:
     {
         std::vector<CapturedFrame> frames;
 
-        // Create a dummy window to get a valid X11 handle.
-        // Since we force xcb in main.cpp, this provides a handle the portal can verify.
-        QWindow dummyWindow;
-        dummyWindow.setFlags(Qt::FramelessWindowHint | Qt::WindowTransparentForInput);
-        dummyWindow.resize(1, 1);
-        dummyWindow.create();
-        QString parentWindow = QString("x11:%1").arg((quintptr)dummyWindow.winId(), 0, 16);
+        QString parentWindow = "";
         
         QDBusInterface portal(
             "org.freedesktop.portal.Desktop",

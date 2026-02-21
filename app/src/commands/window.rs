@@ -62,15 +62,19 @@ pub fn set_always_on_top(app: AppHandle, state: bool) -> Result<(), String> {
 
 #[tauri::command]
 pub fn show_window(app: AppHandle) -> Result<(), String> {
-    let window = app.get_webview_window("main").ok_or("Main window not found")?;
-    window.show().map_err(|e| e.to_string())?;
-    window.set_focus().map_err(|e| e.to_string())
+    crate::services::window::activate_and_center_window(&app, 1030.0, 690.0);
+    Ok(())
 }
 
 #[tauri::command]
 pub fn get_always_on_top(app: AppHandle) -> Result<bool, String> {
     let _window = app.get_webview_window("main").ok_or("Main window not found")?;
     Ok(false) 
+}
+
+#[tauri::command]
+pub fn is_background_mode() -> bool {
+    std::env::args().any(|a| a == "--background" || a == "-b")
 }
 
 #[tauri::command]

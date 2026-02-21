@@ -37,6 +37,7 @@ use commands::window::{
     close_window, maximize_window, minimize_window,
     open_external_url, set_background_color,
     set_always_on_top, get_always_on_top, show_window,
+    is_background_mode,
 };
 use commands::speech::SpeechState;
 use services::image::process_and_store_image;
@@ -47,7 +48,6 @@ pub fn run() {
 
     #[cfg(target_os = "linux")]
     std::env::set_var("GDK_BACKEND", "x11");
-    let is_background = std::env::args().any(|a| a == "--background" || a == "-b");
 
     Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
@@ -105,6 +105,7 @@ pub fn run() {
             set_always_on_top,
             get_always_on_top,
             show_window,
+            is_background_mode,
             // OCR
             ocr_image,
             cancel_ocr_job,
@@ -176,7 +177,7 @@ pub fn run() {
                 base_w,
                 base_h,
                 "",
-                !is_background,
+                false,
             )
             .expect("Failed to spawn main window");
 

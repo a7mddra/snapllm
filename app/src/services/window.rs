@@ -3,6 +3,74 @@
 
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
+#[cfg(target_os = "linux")]
+fn force_activate_linux() {
+    let pid = std::process::id().to_string();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        if let Ok(output) = std::process::Command::new("xdotool")
+            .args(["search", "--pid", &pid])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for wid in stdout.lines() {
+                let wid = wid.trim();
+                if !wid.is_empty() {
+                    let _ = std::process::Command::new("xdotool")
+                        .args(["windowactivate", "--sync", wid])
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .status();
+                }
+            }
+        }
+    });
+}
+
+pub fn activate_and_center_window(app: &AppHandle, base_w: f64, base_h: f64) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let (x, y, _, _) = center_on_cursor_monitor(app, base_w, base_h);
+    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+        x: x as i32,
+        y: y as i32,
+    }));
+
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    #[cfg(target_os = "linux")]
+    force_activate_linux();
+}
+
+pub fn activate_and_center_window_on_display(
+    app: &AppHandle,
+    display_x: i32,
+    display_y: i32,
+    display_w: u32,
+    display_h: u32,
+    base_w: f64,
+    base_h: f64,
+) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let center_x = display_x + (display_w as i32 - base_w as i32) / 2;
+    let center_y = display_y + (display_h as i32 - base_h as i32) / 2;
+    let _ = window.set_position(tauri::PhysicalPosition::new(center_x, center_y));
+
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+
+    #[cfg(target_os = "linux")]
+    force_activate_linux();
+}
+
 pub fn calculate_dynamic_window(
     app: &AppHandle,
     base_w: f64,

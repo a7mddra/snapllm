@@ -1,12 +1,6 @@
 // Copyright 2026 a7mddra
 // SPDX-License-Identifier: Apache-2.0
 
-//! Screen capture service.
-//!
-//! Spawns the `capture-engine` sidecar, reads its IPC protocol
-//! (CHAT_ID + DISPLAY_GEO), then shows the main window centered
-//! on the monitor where the capture took place.
-
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 
@@ -15,24 +9,16 @@ pub fn spawn_capture(app: &AppHandle) {
     let handle = app.clone();
     tauri::async_runtime::spawn_blocking(move || match run_capture(&handle) {
         Ok(result) => {
-            if let Some(window) = handle.get_webview_window("main") {
-                let was_hidden = !window.is_visible().unwrap_or(true)
-                    || window.is_minimized().unwrap_or(false);
-
-                if was_hidden {
-                    if let Some(geo) = result.display_geo {
-                        let win_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
-                            width: 1030,
-                            height: 690,
-                        });
-                        let center_x = geo.x + (geo.w as i32 - win_size.width as i32) / 2;
-                        let center_y = geo.y + (geo.h as i32 - win_size.height as i32) / 2;
-                        let _ = window.set_position(tauri::PhysicalPosition::new(center_x, center_y));
-                    }
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                }
-                let _ = window.set_focus();
+            if let Some(geo) = result.display_geo {
+                crate::services::window::activate_and_center_window_on_display(
+                    &handle,
+                    geo.x, geo.y, geo.w, geo.h,
+                    1030.0, 690.0,
+                );
+            } else {
+                crate::services::window::activate_and_center_window(
+                    &handle, 1030.0, 690.0,
+                );
             }
 
             let payload = serde_json::json!({
